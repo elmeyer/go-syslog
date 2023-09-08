@@ -44,6 +44,12 @@ type Server struct {
 	datagramPool            sync.Pool
 }
 
+// ReadBufferConn is an interface for generic PacketConns providing a SetReadBuffer method.
+type readBufferConn interface {
+	net.PacketConn
+	SetReadBuffer(bytes int) error
+}
+
 //NewServer returns a new Server
 func NewServer() *Server {
 	return &Server{tlsPeerNameFunc: defaultTlsPeerName, datagramPool: sync.Pool{
@@ -102,24 +108,17 @@ func (s *Server) ListenUDP(addr string) error {
 		return err
 	}
 
-	return s.listenUDP(connection)
-}
-
-func (s *Server) listenUDP(conn *net.UDPConn) error {
-	conn.SetReadBuffer(datagramReadBufferSize)
-
-	s.connections = append(s.connections, conn)
+	s.listenPacketConn(connection)
 	return nil
 }
 
 //ListenOn user defined socket
 func (s *Server) ListenOn(conn interface{}) error {
-	switch c := conn.(type) {
-	case *net.UDPConn:
-		return s.listenUDP(c)
-	case *net.UnixConn:
-		return s.listenUnixgram(c)
-	default:
+	if c, ok := conn.(readBufferConn); ok {
+		s.listenPacketConn(c)
+	} else if l, ok := conn.(net.Listener); ok {
+		s.listenListener(l)
+	} else {
 		return fmt.Errorf("unknown socket type")
 	}
 	return nil
@@ -137,14 +136,14 @@ func (s *Server) ListenUnixgram(addr string) error {
 		return err
 	}
 
-	return s.listenUnixgram(connection)
+	s.listenPacketConn(connection)
+	return nil
 }
 
-func (s *Server) listenUnixgram(conn *net.UnixConn) error {
+func (s *Server) listenPacketConn(conn readBufferConn) {
 	conn.SetReadBuffer(datagramReadBufferSize)
 
 	s.connections = append(s.connections, conn)
-	return nil
 }
 
 //Configure the server for listen on a TCP addr
@@ -159,8 +158,7 @@ func (s *Server) ListenTCP(addr string) error {
 		return err
 	}
 
-	s.doneTcp = make(chan bool)
-	s.listeners = append(s.listeners, listener)
+	s.listenListener(listener)
 	return nil
 }
 
@@ -171,9 +169,13 @@ func (s *Server) ListenTCPTLS(addr string, config *tls.Config) error {
 		return err
 	}
 
+	s.listenListener(listener)
+	return nil
+}
+
+func (s *Server) listenListener(listener net.Listener) {
 	s.doneTcp = make(chan bool)
 	s.listeners = append(s.listeners, listener)
-	return nil
 }
 
 //Starts the server, all the go routines goes to live

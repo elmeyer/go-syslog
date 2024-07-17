@@ -36,6 +36,7 @@ type Server struct {
 	doneTcp                 chan bool
 	datagramChannelSize     int
 	datagramChannel         chan DatagramMessage
+	datagramMutex           sync.RWMutex
 	doneDatagram            chan bool
 	format                  format.Format
 	handler                 Handler
@@ -389,6 +390,10 @@ func (s *Server) Kill() error {
 	if s.doneTcp != nil {
 		close(s.doneTcp)
 	}
+
+	s.datagramMutex.Lock()
+	defer s.datagramMutex.Unlock()
+
 	if s.doneDatagram != nil {
 		close(s.doneDatagram)
 	}
@@ -434,11 +439,16 @@ func (s *Server) goReceiveDatagrams(packetconn net.PacketConn) {
 					if addr != nil {
 						address = addr.String()
 					}
+
+					s.datagramMutex.RLock()
 					select {
-					case s.datagramChannel <- DatagramMessage{buf[:n], address}:
 					case <-s.doneDatagram:
+						s.datagramMutex.RUnlock()
 						return
+					default:
 					}
+					s.datagramChannel <- DatagramMessage{buf[:n], address}
+					s.datagramMutex.RUnlock()
 				}
 			} else {
 				// there has been an error. Either the server has been killed

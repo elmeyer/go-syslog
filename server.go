@@ -36,6 +36,7 @@ type Server struct {
 	doneTcp                 chan bool
 	datagramChannelSize     int
 	datagramChannel         chan DatagramMessage
+	doneDatagram            chan bool
 	format                  format.Format
 	handler                 Handler
 	lastError               error
@@ -388,6 +389,9 @@ func (s *Server) Kill() error {
 	if s.doneTcp != nil {
 		close(s.doneTcp)
 	}
+	if s.doneDatagram != nil {
+		close(s.doneDatagram)
+	}
 	if s.datagramChannel != nil {
 		close(s.datagramChannel)
 	}
@@ -430,7 +434,11 @@ func (s *Server) goReceiveDatagrams(packetconn net.PacketConn) {
 					if addr != nil {
 						address = addr.String()
 					}
-					s.datagramChannel <- DatagramMessage{buf[:n], address}
+					select {
+					case s.datagramChannel <- DatagramMessage{buf[:n], address}:
+					case <-s.doneDatagram:
+						return
+					}
 				}
 			} else {
 				// there has been an error. Either the server has been killed
@@ -448,6 +456,7 @@ func (s *Server) goReceiveDatagrams(packetconn net.PacketConn) {
 
 func (s *Server) goParseDatagrams() {
 	s.datagramChannel = make(chan DatagramMessage, s.datagramChannelSize)
+	s.doneDatagram = make(chan bool)
 
 	s.wait.Add(1)
 	go func() {

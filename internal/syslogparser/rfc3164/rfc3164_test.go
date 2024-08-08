@@ -213,6 +213,24 @@ func (s *Rfc3164TestSuite) TestParser_ValidRFC3339Timestamp(c *C) {
 	c.Assert(obtained, DeepEquals, expected)
 }
 
+func (s *Rfc3164TestSuite) TestParser_ValidRFC3339TimestampNoTimezone(c *C) {
+	buff := []byte("<34>2018-01-12T22:14:15Z mymachine app[101]: msg")
+	p := NewParser(buff)
+	err := p.Parse()
+	c.Assert(err, IsNil)
+	obtained := p.Dump()
+	expected := syslogparser.LogParts{
+		"timestamp": time.Date(2018, time.January, 12, 22, 14, 15, 0, time.UTC),
+		"hostname":  "mymachine",
+		"tag":       "app",
+		"content":   "msg",
+		"priority":  34,
+		"facility":  4,
+		"severity":  2,
+	}
+	c.Assert(obtained, DeepEquals, expected)
+}
+
 func (s *Rfc3164TestSuite) TestParseHeader_InvalidTimestamp(c *C) {
 	buff := []byte("Oct 34 32:72:82 mymachine ")
 	hdr := header{}

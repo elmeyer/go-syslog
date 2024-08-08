@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"time"
+	"unicode"
 
 	"gopkg.in/mcuadros/go-syslog.v2/internal/syslogparser"
 )
@@ -150,6 +151,7 @@ func (p *Parser) parseTimestamp() (time.Time, error) {
 	var ts time.Time
 	var err error
 	var tsFmtLen int
+	var tsEnd int
 	var sub []byte
 
 	tsFmts := []string{
@@ -168,8 +170,16 @@ func (p *Parser) parseTimestamp() (time.Time, error) {
 	found := false
 	for _, tsFmt := range tsFmts {
 		tsFmtLen = len(tsFmt)
+		if tsEnd = p.cursor + tsFmtLen; tsEnd-p.l > 4 {
+			continue
+		}
 
-		if p.cursor+tsFmtLen > p.l {
+		if tsFmt == time.RFC3339 {
+			// check for 2006-01-02T15:04:05Z
+			if unicode.IsSpace(rune(p.buff[p.cursor+(tsFmtLen-5)])) {
+				tsFmtLen -= 5
+			}
+		} else if tsEnd-p.l > 0 {
 			continue
 		}
 
